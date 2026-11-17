@@ -1,0 +1,56 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev
+      - name: Check Android platform configuration
+        run: python3 tool/test_android_config.py
+      - name: Build Linux and Android packages
+        run: tool/build.sh "$GITHUB_WORKSPACE/build/dist"
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aerodrop-beta-packages
+          path: build/dist/*
+          if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: aerodrop-beta-packages
+          path: build/dist
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" build/dist/* \
+            --title "AeroDrop $GITHUB_REF_NAME" \
+            --notes "Experimental beta build. See the README for limitations and installation instructions."
